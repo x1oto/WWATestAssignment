@@ -2,4 +2,6 @@
     <string name="app_name">WWATestAssignment</string>
     <string name="arrow_up">↑</string>
     <string name="arrow_down">↓</string>
+    <string name="count">Count:</string>
+    <string name="_0">0</string>
 </resources>

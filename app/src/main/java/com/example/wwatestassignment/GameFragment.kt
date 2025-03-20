@@ -1,22 +1,27 @@
 package com.example.wwatestassignment
 
 import android.annotation.SuppressLint
+import android.graphics.Rect
 import androidx.fragment.app.viewModels
 import android.os.Bundle
 import android.util.DisplayMetrics
+import android.util.Log
 import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
-import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.lifecycle.lifecycleScope
 import com.example.wwatestassignment.databinding.FragmentGameBinding
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class GameFragment : Fragment() {
 
@@ -25,7 +30,11 @@ class GameFragment : Fragment() {
     private var _binding: FragmentGameBinding? = null
     private val binding get() = _binding!!
 
+    private val submarineScope = CoroutineScope(Dispatchers.Default)
     private var submarineMoveJob: Job? = null
+    private val obstacleScope = CoroutineScope(Dispatchers.Default)
+    private var obstaclesSpawnJob: Job? = null
+    private var checkCollisionJob: Job? = null
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -35,15 +44,80 @@ class GameFragment : Fragment() {
         return binding.root
     }
 
-    //                    ObjectAnimator.ofFloat(binding.imageView2, "translationX", -getDisplayWidth().toFloat()).apply {
-//                        duration = 4500
-//                        start()
-//                    }
-
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         moveSubmarineUp()
         moveSubmarineDown()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        spawnObstacle()
+        checkCollision()
+    }
+
+    private fun checkCollision() {
+        checkCollisionJob = lifecycleScope.launch(Dispatchers.Default) {
+            while (true) {
+                delay(150)
+                val submarineRect = Rect()
+                binding.imageView.getHitRect(submarineRect)
+
+                for (i in 0 until binding.root.childCount) {
+                    val child = binding.root.getChildAt(i)
+                    // Переконуємось, що не перевіряємо саму субмарину
+                    if (child != binding.imageView && child != binding.clBottom) {
+                        val childRect = Rect()
+                        child.getHitRect(childRect)
+                        if (Rect.intersects(submarineRect, childRect)) {
+                            Log.d("Collision", "Субмарина зіткнулася з dynamicImageView!")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    private fun spawnObstacle() {
+       obstaclesSpawnJob = obstacleScope.launch {
+            while (true) {
+                delay(1000)
+                val dynamicImageView = ImageView(requireContext()).apply {
+                    setImageResource(R.drawable.ic_launcher_background)
+                    layoutParams = FrameLayout.LayoutParams(100, 100)
+                    x = binding.root.width.toFloat()
+                    y = (Math.random() * binding.root.height).toFloat()
+                }
+
+                withContext(Dispatchers.Main) {
+                    binding.root.addView(dynamicImageView)
+
+                    dynamicImageView.animate()
+                        .translationX(-3000f)
+                        .setDuration(10000)
+                        .withEndAction {
+                            binding.root.removeView(dynamicImageView)
+                        }
+                        .start()
+                }
+            }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        submarineMoveJob?.cancel()
+        obstaclesSpawnJob?.cancel()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        submarineMoveJob?.cancel()
+        obstaclesSpawnJob?.cancel()
+    }
+
+    private fun spawnReward() {
 
     }
 
@@ -52,29 +126,13 @@ class GameFragment : Fragment() {
         binding.btMoveToTop.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    submarineMoveJob = lifecycleScope.launch {
+                    submarineMoveJob = submarineScope.launch {
                         viewModel.decrement(binding.imageView.y.toInt()).collectLatest {
                             binding.imageView.y = it
                         }
                     }
 
-                    val dynamicImageView = ImageView(requireContext()).apply {
-                        setImageResource(R.drawable.pic_iceberg)
-                        layoutParams = ConstraintLayout.LayoutParams(100, 100)
-                        x = binding.root.width.toFloat() - width
-                        y = (Math.random() * binding.root.height).toFloat()
-                    }
 
-                    binding.root.addView(dynamicImageView)
-
-                    dynamicImageView.animate()
-                        .translationX(-3000f)
-                        .setDuration(7000)
-                        .withEndAction {
-                            // Видаляємо ImageView після завершення анімації
-                            binding.root.removeView(dynamicImageView)
-                        }
-                        .start()
                 }
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -92,7 +150,7 @@ class GameFragment : Fragment() {
         binding.btMoveToEnd.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    submarineMoveJob = lifecycleScope.launch {
+                    submarineMoveJob = submarineScope.launch {
                         viewModel.increment(
                             binding.imageView.y.toInt(),
                             getDisplayHeight() - getSubmarineHeight()
@@ -130,6 +188,7 @@ class GameFragment : Fragment() {
     override fun onDestroy() {
         super.onDestroy()
         submarineMoveJob?.cancel()
+        obstaclesSpawnJob?.cancel()
     }
 
     override fun onDestroyView() {
