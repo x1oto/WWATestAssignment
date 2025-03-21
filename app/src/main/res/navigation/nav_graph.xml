@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/nav_graph"
-    app:startDestination="@id/gameFragment">
+    app:startDestination="@id/startFragment">
 
     <fragment
         android:id="@+id/gameFragment"
@@ -21,5 +21,14 @@
         <argument
             android:name="result"
             app:argType="com.example.wwatestassignment.utils.Result" />
+    </fragment>
+    <fragment
+        android:id="@+id/startFragment"
+        android:name="com.example.wwatestassignment.StartFragment"
+        android:label="fragment_start"
+        tools:layout="@layout/fragment_start" >
+        <action
+            android:id="@+id/action_startFragment_to_gameFragment"
+            app:destination="@id/gameFragment" />
     </fragment>
 </navigation>

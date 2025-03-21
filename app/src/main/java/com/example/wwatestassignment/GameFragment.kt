@@ -5,7 +5,6 @@ import android.graphics.Rect
 import androidx.fragment.app.viewModels
 import android.os.Bundle
 import android.util.DisplayMetrics
-import android.util.Log
 import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -13,7 +12,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
-import android.widget.Toast
+import androidx.core.view.children
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.example.wwatestassignment.databinding.FragmentGameBinding
@@ -25,22 +24,19 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.example.wwatestassignment.utils.Result
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.isActive
 
 class GameFragment : Fragment() {
 
     private val viewModel: GameViewModel by viewModels()
-
     private var _binding: FragmentGameBinding? = null
     private val binding get() = _binding!!
 
-    private val submarineScope = CoroutineScope(Dispatchers.Default)
     private var submarineMoveJob: Job? = null
-    private val obstacleScope = CoroutineScope(Dispatchers.Default)
     private var obstaclesSpawnJob: Job? = null
+    private var rewardSpawnJob: Job? = null
     private var checkCollisionJob: Job? = null
-
-    private var isActive: Boolean = true
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -52,163 +48,166 @@ class GameFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        moveSubmarineUp()
-        moveSubmarineDown()
-        setupScoreCounter()
-        setupLivesCounter()
+        setupUI()
     }
 
     override fun onResume() {
         super.onResume()
-        isActive = true
+        startGame()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopGame()
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
+    }
+
+    private fun setupUI() {
+        setupScoreCounter()
+        setupLivesCounter()
+        setupMovementControls()
+    }
+
+    private fun startGame() {
         viewModel.startScoreCounter()
-        spawnObstacle()
-        checkCollision()
+        spawnObstacles()
+        spawnRewards()
+        startCollisionDetection()
+    }
+
+    private fun stopGame() {
+        cancelAllJobs()
+        viewModel.destroyScoreCounter()
+    }
+
+    private fun cancelAllJobs() {
+        submarineMoveJob?.cancel()
+        obstaclesSpawnJob?.cancel()
+        rewardSpawnJob?.cancel()
+        checkCollisionJob?.cancel()
     }
 
     private fun setupScoreCounter() {
         lifecycleScope.launch {
-            viewModel.score.collectLatest {
-                binding.tvCount.text = it.toString()
-
-                if(it == 100) {
-                    findNavController().navigate(GameFragmentDirections.actionGameFragmentToResultFragment(Result.WIN))
-                }
+            viewModel.score.collectLatest { score ->
+                binding.tvCount.text = score.toString()
+                if (score >= 100) endGame(Result.WIN)
             }
         }
     }
 
     private fun setupLivesCounter() {
         lifecycleScope.launch {
-            viewModel.lives.collectLatest {
-                binding.tvLives.text = it.toString()
-
-                if(it == 0) {
-                    findNavController().navigate(GameFragmentDirections.actionGameFragmentToResultFragment(Result.LOSE))
-                }
+            viewModel.lives.collectLatest { lives ->
+                binding.tvLives.text = lives.toString()
+                if (lives == 0) endGame(Result.LOSE)
             }
         }
     }
 
-    private fun checkCollision() {
+    private fun endGame(result: Result) {
+        viewModel.setDefaultValues()
+        findNavController().navigate(GameFragmentDirections.actionGameFragmentToResultFragment(result))
+    }
+
+    private fun startCollisionDetection() {
         checkCollisionJob = lifecycleScope.launch(Dispatchers.Default) {
-            while (true) {
+            while (isActive) {
                 delay(150)
                 val submarineRect = Rect()
                 binding.imageView.getHitRect(submarineRect)
 
-                for (i in 0 until binding.root.childCount) {
-                    val child = binding.root.getChildAt(i)
-                    if (child != binding.imageView && child != binding.clBottom) {
-                        val childRect = Rect()
-                        child.getHitRect(childRect)
-                        if (Rect.intersects(submarineRect, childRect)) {
-                            viewModel.decrementLife()
-                            delay(500)
-                        }
+                binding.root.children.forEach { child ->
+                    if (child !is ImageView || child == binding.imageView || child == binding.clBottom) return@forEach
+
+                    val childRect = Rect().apply { child.getHitRect(this) }
+                    if (Rect.intersects(submarineRect, childRect)) {
+                        handleCollision(child)
                     }
                 }
             }
         }
     }
 
+    private suspend fun handleCollision(child: View) {
+        if (child.tag == 0) {
+            viewModel.decrementLife()
+        } else {
+            viewModel.incrementLife()
+        }
+        delay(500)
+    }
 
-    private fun spawnObstacle() {
-        obstaclesSpawnJob = obstacleScope.launch {
-            while (true) {
+    private fun spawnObstacles() {
+        obstaclesSpawnJob = lifecycleScope.launch(Dispatchers.Default) {
+            while (isActive) {
                 delay(1000)
-                val dynamicImageView = ImageView(requireContext()).apply {
-                    setImageResource(R.drawable.ic_launcher_background)
-                    layoutParams = FrameLayout.LayoutParams(100, 100)
-                    val rootWidth = _binding?.root?.width ?: 0
-                    x = rootWidth.toFloat()
-                    val rootHeight = _binding?.root?.height ?: 0
-                    y = (Math.random() * rootHeight).toFloat() - (getBottomBarHeight() * 2)
-                }
-
-                withContext(Dispatchers.Main) {
-                    _binding?.let { binding ->
-                        binding.root.addView(dynamicImageView)
-
-                        dynamicImageView.animate()
-                            .translationX(-3000f)
-                            .setDuration(10000)
-                            .withEndAction {
-                                _binding?.root?.removeView(dynamicImageView)
-                            }
-                            .start()
-                    }
-                }
+                spawnObject(R.drawable.bomb_24px, 0)
             }
         }
     }
 
-    override fun onPause() {
-        super.onPause()
-        obstaclesSpawnJob?.cancel()
-        checkCollisionJob?.cancel()
-        submarineMoveJob?.cancel()
-        viewModel.destroyScoreCounter()
+    private fun spawnRewards() {
+        rewardSpawnJob = lifecycleScope.launch(Dispatchers.Default) {
+            while (isActive) {
+                delay(20000)
+                spawnObject(R.drawable.heart_24px, 1)
+            }
+        }
     }
 
-    override fun onStop() {
-        super.onStop()
-        obstaclesSpawnJob?.cancel()
-        checkCollisionJob?.cancel()
-        submarineMoveJob?.cancel()
-        viewModel.destroyScoreCounter()
+    private suspend fun spawnObject(drawableId: Int, tag: Int) {
+        val dynamicImageView = ImageView(requireContext()).apply {
+            this.tag = tag
+            setImageResource(drawableId)
+            layoutParams = FrameLayout.LayoutParams(100, 100)
+            x = binding.root.width.toFloat()
+            y = (Math.random() * binding.root.height).toFloat() - (getBottomBarHeight() * 2)
+        }
+
+        withContext(Dispatchers.Main) {
+            _binding?.root?.addView(dynamicImageView)
+            dynamicImageView.animate()
+                .translationX(-3000f)
+                .setDuration(10000)
+                .withEndAction { _binding?.root?.removeView(dynamicImageView) }
+                .start()
+        }
     }
 
-    private fun spawnReward() {
-
+    private fun setupMovementControls() {
+        setupSubmarineMovement(binding.btMoveToTop) { viewModel.surfaceSubmarine(binding.imageView.y.toInt()) }
+        setupSubmarineMovement(binding.btMoveToEnd) {
+            viewModel.sailSubmarine(
+                binding.imageView.y.toInt(),
+                getDisplayHeight() - getSubmarineHeight() - getBottomBarHeight()
+            )
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun moveSubmarineUp() {
-        binding.btMoveToTop.setOnTouchListener { _, event ->
+    private fun setupSubmarineMovement(button: View, movementFlow: () -> Flow<Float>) {
+        button.setOnTouchListener { _, event ->
             when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    submarineMoveJob = submarineScope.launch {
-                        viewModel.decrement(binding.imageView.y.toInt()).collectLatest {
-                            binding.imageView.y = it
-                        }
-                    }
-                }
-
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (submarineMoveJob?.isActive == true) {
-                        submarineMoveJob?.cancel()
-                    }
-                }
+                MotionEvent.ACTION_DOWN -> startSubmarineMovement(movementFlow)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> stopSubmarineMovement()
             }
             false
         }
     }
 
-    @SuppressLint("ClickableViewAccessibility")
-    private fun moveSubmarineDown() {
-        binding.btMoveToEnd.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    submarineMoveJob = submarineScope.launch {
-                        viewModel.increment(
-                            binding.imageView.y.toInt(),
-                            getDisplayHeight() - getSubmarineHeight() - getBottomBarHeight()
-                        )
-                            .collectLatest {
-                                binding.imageView.y = it
-                            }
-                    }
-                }
-
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (submarineMoveJob?.isActive == true) {
-                        submarineMoveJob?.cancel()
-                    }
-                }
-            }
-            false
+    private fun startSubmarineMovement(movementFlow: () -> Flow<Float>) {
+        submarineMoveJob = lifecycleScope.launch {
+            movementFlow().collectLatest { binding.imageView.y = it }
         }
+    }
+
+    private fun stopSubmarineMovement() {
+        submarineMoveJob?.cancel()
     }
 
     private fun getDisplayHeight(): Int {
@@ -220,16 +219,4 @@ class GameFragment : Fragment() {
     private fun getBottomBarHeight() = binding.clBottom.height
 
     private fun getSubmarineHeight() = binding.imageView.height
-
-    override fun onDestroy() {
-        super.onDestroy()
-        isActive = false
-        submarineMoveJob?.cancel()
-        obstaclesSpawnJob?.cancel()
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
-    }
 }
