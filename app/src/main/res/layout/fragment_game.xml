@@ -59,10 +59,27 @@
             android:id="@+id/tvCount"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/_0"
             app:layout_constraintBottom_toBottomOf="@+id/tvCountLabel"
             app:layout_constraintStart_toEndOf="@+id/tvCountLabel"
             app:layout_constraintTop_toTopOf="@+id/tvCountLabel" />
+
+        <TextView
+            android:id="@+id/tvLivesLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/lives"
+            app:layout_constraintBottom_toBottomOf="@+id/tvCountLabel"
+            app:layout_constraintStart_toEndOf="@+id/tvCount"
+            app:layout_constraintTop_toTopOf="@+id/tvCountLabel" />
+
+        <TextView
+            android:id="@+id/tvLives"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:layout_constraintBottom_toBottomOf="@+id/tvLivesLabel"
+            app:layout_constraintStart_toEndOf="@+id/tvLivesLabel"
+            app:layout_constraintTop_toTopOf="@+id/tvLivesLabel" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 

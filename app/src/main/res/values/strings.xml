@@ -4,4 +4,5 @@
     <string name="arrow_down">↓</string>
     <string name="count">Count:</string>
     <string name="_0">0</string>
+    <string name="lives">Lives:</string>
 </resources>
